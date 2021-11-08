@@ -1,0 +1,125 @@
+---
+title: 'NHSD release registers: dataset use'
+author: "Lisa Hopcroft"
+date: "08/11/2021"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(readxl)
+library(magrittr)
+library(dplyr)
+library(stringr)
+library(knitr)
+library(glue)
+library(zoo)
+```
+
+# Uses of the Medicines dispensed in Primary Care dataset
+
+The data were obtained from [here](https://nhs-prod.global.ssl.fastly.net/binaries/content/assets/website-assets/services/dars/data-uses-register/datausesregister_november2021.xlsx), from [this landing page](https://digital.nhs.uk/services/data-access-request-service-dars/data-uses-register).
+This contains all DSA (data sharing agreements) active from January 2020 to November
+2021.
+
+## Last release of data
+
+```{r}
+
+
+all_releases.data = readxl::read_excel("DataUsesRegister_November2021.xlsx", sheet="DataReleases")
+
+latest_release = all_releases.data %>% pull( `Month File Released`) %>% as.yearmon(dates, format = "%b-%y") %>% max
+
+```
+
+The most recent date for any release of data is `r latest_release`.
+
+## Number of applications
+
+```{r}
+
+this_dataset.name = "Medicines dispensed in Primary Care (NHSBSA data)"
+
+all_datasets.data = readxl::read_excel("DataUsesRegister_November2021.xlsx", sheet="Datasets")
+
+this_dataset.data = all_datasets.data %>% 
+    filter( Dataset == this_dataset.name ) %>% 
+    mutate( application_number = str_remove( `Reference Number`, "-v.*" ) )
+
+this_dataset.application_numbers = this_dataset.data %>% pull( application_number ) %>% unique
+
+```
+
+There are `r length(this_dataset.application_numbers)` unique applications
+requesting access to this dataset (note that different versions of these
+applications are counted as one application).
+
+## Organisations and projects
+
+The `r length(this_dataset.application_numbers)` unique applications map to
+multiple organisations as individual applications may have cover multiple DSAs
+(for different time periods), the leading applicant organisation for that
+application may change over time etc.
+
+
+```{r}
+
+all_agreements.data = readxl::read_excel("DataUsesRegister_November2021.xlsx", sheet="Agreements")
+
+dataset_agreements.data = all_agreements.data %>% 
+    mutate( application_number = str_remove( `Reference Number`, "-v.*" ) ) %>% 
+    select( -`Reference Number` ) %>% 
+    unique() %>% 
+    filter( application_number %in% this_dataset.application_numbers ) 
+
+organisation_summary = dataset_agreements.data %>% 
+    select( `Applicant Organisation`, `Application Title` ) %>% 
+    unique() %>% 
+    group_by( `Applicant Organisation` ) %>% 
+    summarise( count=n() ) %>% 
+    arrange( -count )
+
+num_organisations = dataset_agreements.data %>%
+    pull( `Applicant Organisation` ) %>%
+    unique() %>% length
+
+```
+
+There are `r num_organisations` organisations who are listed as the lead
+applicants for these applications. The number of different projects
+(as measured by unique project titles) for each organisation is provided below:
+
+```{r}
+
+knitr::kable( organisation_summary )
+
+```
+
+## Project summary 
+
+More detail about the projects summarised in the table above are provided below:
+
+```{r results = "asis"}
+
+these_organisations = organisation_summary %>%
+    pull( `Applicant Organisation`) %>% 
+    unique
+
+for ( this_organisation in these_organisations ) {
+
+    project_list = dataset_agreements.data %>% 
+        filter( `Applicant Organisation` == this_organisation ) %>% 
+        pull( `Application Title` ) %>% 
+        unique()
+
+    print( glue("### {this_organisation}\n\n"))
+    
+    for ( p in 1:length( project_list ) ) {
+        print( glue("{p}. {project_list[p]}\n\n") )
+    }
+
+} 
+
+```
